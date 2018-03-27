@@ -5,6 +5,7 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;
 
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -21,11 +22,11 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
 
   @Before
   public void initDB() throws Exception {
-    Properties props = new Properties();
-    props.setProperty("DB_CLOSE_DELAY", "1");
-    props.setProperty("MODE", "MYSQL");
-    this.dbConnection =
-        Driver.load().connect("jdbc:h2:mem:testdb;", props);
+    initMySqlConnection();
+//    initH2Connection();
+
+    execute("DROP TABLE IF EXISTS status");
+    execute("DROP TABLE IF EXISTS message");
 
     execute("CREATE TABLE message ("
         + "id bigint(20) NOT NULL AUTO_INCREMENT, "
@@ -35,7 +36,7 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
         + "PRIMARY KEY (id), "
         + "UNIQUE KEY UK_msgId (messageId), "
         + "KEY idx_lastStatusChange (lastStatusChange) "
-        + ") ENGINE=InnoDB AUTO_INCREMENT=50 DEFAULT CHARSET=UTF8");
+        + ") ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=UTF8");
 
     execute("CREATE TABLE status ("
         + "id bigint(20) NOT NULL AUTO_INCREMENT, "
@@ -60,6 +61,22 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
     execute("INSERT INTO status (lastChange, messageId, status) VALUES ('2015-09-21 10:34:09', 4, 'RECEIVED')");
   }
 
+  private void initMySqlConnection() throws Exception {
+    Class.forName("com.mysql.jdbc.Driver");
+    this.dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3306/test?useSSL=false", "root", "");
+
+    execute("DROP FUNCTION IF EXISTS RAWTOHEX");
+    execute("CREATE FUNCTION RAWTOHEX(message VARCHAR(64)) RETURNS VARCHAR(64) RETURN HEX(message)");
+  }
+
+  private void initH2Connection() throws Exception {
+    Properties props = new Properties();
+    props.setProperty("DB_CLOSE_DELAY", "1");
+    props.setProperty("MODE", "MYSQL");
+
+    this.dbConnection = Driver.load().connect("jdbc:h2:mem:testdb;", props);
+  }
+
   @Test
   public void insertOnUpdateTestWithForeignKey() throws Exception {
 
@@ -69,7 +86,7 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
       dbConnection.setAutoCommit(false);
       dbConnection.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
 
-      insetUpdate = dbConnection.prepareStatement("INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') ON DUPLICATE KEY UPDATE message=VALUES(RAWTOHEX('Updated Message 1')), lastStatusChange=VALUES('2015-09-21 10:40:00')");
+      insetUpdate = dbConnection.prepareStatement("INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') ON DUPLICATE KEY UPDATE message=RAWTOHEX('Updated Message 1'), lastStatusChange='2015-09-21 10:40:00'");
       int retValue = insetUpdate.executeUpdate();
 
       int affectedId;
@@ -77,17 +94,22 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
         affectedId = executeIdStatement("SELECT LAST_INSERT_ID() AS n");
         System.out.println("Inserted new entry with ID: " + affectedId);
         // fail("An update should have been triggered instead of an insert!");
-      } else {
+      } else if (2 == retValue) {
         affectedId = executeIdStatement("SELECT id FROM message WHERE messageId = 'abcd1234'");
         System.out.println("Updated entry with ID: " + affectedId);
+      } else {
+        affectedId = executeIdStatement("SELECT id FROM message WHERE messageId = 'abcd1234'");
+        System.out.println("Existing row is set to its current value");
       }
 
+      System.out.println("Affected ID: " + affectedId);
       insert = dbConnection.prepareStatement("INSERT INTO status (lastChange, messageId, status) VALUES ('2015-09-21 10:40:00', " + affectedId + ", 'UPDATED')");
       insert.execute();
 
       dbConnection.commit();
     } catch (Exception ex) {
       System.err.println("Caught exception while performing transaction. Reason: " + ex.getLocalizedMessage());
+      ex.printStackTrace();
       dbConnection.rollback();
     } finally {
       if (null != insetUpdate) {
@@ -111,7 +133,9 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
 
   @After
   public void close() throws Exception {
-    dbConnection.close();
+    if (null != dbConnection) {
+      dbConnection.close();
+    }
   }
 
   private void execute(String statement) throws Exception {
@@ -121,7 +145,7 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
   }
 
   private int executeIdStatement(String sql) throws SQLException {
-    int retVal = 0;
+    int retVal;
     Statement s = dbConnection.createStatement();
     ResultSet rs = s.executeQuery(sql);
     rs.next();
