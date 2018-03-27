@@ -13,18 +13,30 @@ import java.sql.Statement;
 import java.util.Properties;
 import org.h2.Driver;
 import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 public class PlainJdbcH2MySqlInsertOnUpdateTest {
 
   private Connection dbConnection = null;
 
-  @Before
-  public void initDB() throws Exception {
-    initMySqlConnection();
-//    initH2Connection();
+  private void initMySqlConnection() throws Exception {
+    Class.forName("com.mysql.jdbc.Driver");
+    this.dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3306/test?useSSL=false", "root", "");
 
+    execute("DROP FUNCTION IF EXISTS RAWTOHEX");
+    execute("CREATE FUNCTION RAWTOHEX(message VARCHAR(64)) RETURNS VARCHAR(64) RETURN HEX(message)");
+  }
+
+  private void initH2Connection() throws Exception {
+    Properties props = new Properties();
+    props.setProperty("DB_CLOSE_DELAY", "1");
+    props.setProperty("MODE", "MYSQL");
+
+    this.dbConnection = Driver.load().connect("jdbc:h2:mem:testdb;", props);
+  }
+
+
+  private void initDB() throws Exception {
     execute("DROP TABLE IF EXISTS status");
     execute("DROP TABLE IF EXISTS message");
 
@@ -60,25 +72,24 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
     execute("INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1237', RAWTOHEX('Test Message 4'), '2015-09-21 10:34:09')");
     execute("INSERT INTO status (lastChange, messageId, status) VALUES ('2015-09-21 10:34:09', 4, 'RECEIVED')");
   }
+  @Test
+  public void testOnUpdateWithMySQL() throws Exception {
+    initMySqlConnection();
 
-  private void initMySqlConnection() throws Exception {
-    Class.forName("com.mysql.jdbc.Driver");
-    this.dbConnection = DriverManager.getConnection("jdbc:mysql://localhost:3306/test?useSSL=false", "root", "");
-
-    execute("DROP FUNCTION IF EXISTS RAWTOHEX");
-    execute("CREATE FUNCTION RAWTOHEX(message VARCHAR(64)) RETURNS VARCHAR(64) RETURN HEX(message)");
-  }
-
-  private void initH2Connection() throws Exception {
-    Properties props = new Properties();
-    props.setProperty("DB_CLOSE_DELAY", "1");
-    props.setProperty("MODE", "MYSQL");
-
-    this.dbConnection = Driver.load().connect("jdbc:h2:mem:testdb;", props);
+    initDB();
+    performInsertOnUpdateTestWithForeignKey();
   }
 
   @Test
-  public void insertOnUpdateTestWithForeignKey() throws Exception {
+  public void testOnUpdateWithH2() throws Exception {
+    initH2Connection();
+
+    initDB();
+    performInsertOnUpdateTestWithForeignKey();
+  }
+
+
+  private void performInsertOnUpdateTestWithForeignKey() throws Exception {
 
     PreparedStatement insetUpdate = null;
     PreparedStatement insert = null;
