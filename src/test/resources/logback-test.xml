@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration debug="true">
+	<appender class="ch.qos.logback.core.ConsoleAppender" name="RootConsoleAppender">
+		<encoder>
+			<!-- pattern>[%-5level] %-14.14X{camel.breadcrumbId} - %12.-12X{camel.routeId} - %msg [%thread] [%logger{5}] %n</pattern> -->
+			<pattern>[%-5level] - %msg [%thread]  %class{15} [%logger{5}] %n</pattern>
+		</encoder>
+	</appender>
+
+	<logger name="org.springframework" level="INFO" />
+	<logger name="org.h2" level="DEBUG" />
+
+	<logger name="at.rovo" level="trace"/>
+	<root>
+		<level value="info" />
+		<appender-ref ref="RootConsoleAppender" />
+	</root>
+</configuration>
