@@ -6,7 +6,13 @@ import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+import com.mysql.jdbc.exceptions.jdbc4.MySQLIntegrityConstraintViolationException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.Map;
+import javax.annotation.Resource;
+import javax.sql.DataSource;
 import org.h2.jdbc.JdbcSQLException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,17 +33,10 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-
-import javax.annotation.Resource;
-import javax.sql.DataSource;
-
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlDialectInspection"})
 @RunWith(SpringJUnit4ClassRunner.class)
-@ContextConfiguration(classes= {H2MySqlInsertOnUpdateTest.ContextConfig.class})
-public class H2MySqlInsertOnUpdateTest {
+@ContextConfiguration(classes= {MySqlInsertOnUpdateTest.ContextConfig.class})
+public class MySqlInsertOnUpdateTest {
 
   @Resource
   private JdbcTemplate jdbcTemplate;
@@ -45,6 +44,9 @@ public class H2MySqlInsertOnUpdateTest {
   private PlatformTransactionManager tm;
 
   private void initDB() {
+
+    jdbcTemplate.execute("DROP FUNCTION IF EXISTS RAWTOHEX");
+    jdbcTemplate.execute("CREATE FUNCTION RAWTOHEX(message VARCHAR(64)) RETURNS VARCHAR(64) RETURN HEX(message)");
 
     jdbcTemplate.execute("DROP TABLE IF EXISTS status");
     jdbcTemplate.execute("DROP TABLE IF EXISTS message");
@@ -103,7 +105,7 @@ public class H2MySqlInsertOnUpdateTest {
           jdbcTemplate.update(sqlInsert);
           fail("Should have thrown an exception as entry already exists");
         } catch (DataAccessException daEx) {
-          assertThat(daEx.getCause(), instanceOf(JdbcSQLException.class));
+          assertThat(daEx.getCause(), instanceOf(MySQLIntegrityConstraintViolationException.class));
           // Unique index or primary key violated: "UK_MSGID_INDEX_6 ON PUBLIC.MESSAGE(MESSAGEID) VALUES ('abcd1234', 1)";
           //    SQL statement: INSERT INTO message (messageId, message, lastStatusChange)
           //                   VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') [23505-197]
@@ -119,7 +121,7 @@ public class H2MySqlInsertOnUpdateTest {
           jdbcTemplate.update(sqlInsert);
           fail("Should have thrown an exception as entry already exists");
         } catch (DataAccessException daEx) {
-          assertThat(daEx.getCause(), instanceOf(JdbcSQLException.class));
+          assertThat(daEx.getCause(), instanceOf(MySQLIntegrityConstraintViolationException.class));
           // Unique index or primary key violated: "PRIMARY KEY ON PUBLIC.MESSAGE(ID)" Unique index or primary key violation: "PRIMARY KEY ON PUBLIC.MESSAGE(ID)";
           //    SQL statement: INSERT INTO message (id, messageId, message, lastStatusChange)
           //                   VALUES (1, 'abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') [23505-197]
@@ -182,8 +184,9 @@ public class H2MySqlInsertOnUpdateTest {
     @Bean
     public DataSource dataSource() throws Exception {
       SimpleDriverDataSource db = new SimpleDriverDataSource();
-      db.setDriverClass(org.h2.Driver.class);
-      db.setUrl("jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=MYSQL;");
+      db.setDriverClass(com.mysql.jdbc.Driver.class);
+      db.setUrl("jdbc:mysql://localhost:3306/test?useSSL=false");
+      db.setUsername("root");
       return db;
     }
 
