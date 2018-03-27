@@ -81,11 +81,12 @@ public class H2MySqlInsertOnUpdateTest {
     int numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
     assertThat("Unexpected number of messages found after initialization", numMessages, is(equalTo(4)));
 
+    // FIXME: this statement will lead in a downstream INSERT INTO ... ON DUPLICATE KEY UPDATE statement which retrieves the ID of the affected entry to an increment by 1!
     final String insert = "INSERT INTO message (messageId, message, lastStatusChange) VALUES ('newMessage', RAWTOHEX('New message'), '2018-03-27')";
     jdbcTemplate.update(insert);
 
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
-    assertThat("Unexpected number of messages found after initialization", numMessages, is(equalTo(5)));
+    assertThat("Unexpected number of messages found after regular insert outside of transaction", numMessages, is(equalTo(5)));
 
     TransactionTemplate txTemp = new TransactionTemplate(tm);
     txTemp.setIsolationLevel(TransactionDefinition.ISOLATION_READ_UNCOMMITTED);
@@ -95,7 +96,7 @@ public class H2MySqlInsertOnUpdateTest {
 
         int testNumMessages;
 
-        // This query will actually increase the ID returned by later INSERT INTO ... ON DUPLICATE KEY UPDATE statement by 1!
+        // FIXME: This query will actually increase the ID returned by later INSERT INTO ... ON DUPLICATE KEY UPDATE statement by 1!
         try {
           final String sqlInsert = "INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00')";
           jdbcTemplate.update(sqlInsert);
@@ -126,12 +127,21 @@ public class H2MySqlInsertOnUpdateTest {
         }
 
 
+        // FIXME: This statement will also incremtn the downstream ID lookup by 1
+        final String insert = "INSERT INTO message (messageId, message, lastStatusChange) VALUES ('newMessage2', RAWTOHEX('New message2'), '2018-03-27')";
+        jdbcTemplate.update(insert);
+
+        // FIXME: unsure why this propagates to a message count update yet as no commit was yet executed!
+        // This seems to be independent from the defined isolation or propagation setting defined
+        int numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
+        assertThat("Unexpected number of messages found after regular insert within transaction", numMessages, is(equalTo(6)));
 
         // This simple transaction should update the first entry and return the index of the updated row.
         // However, the statement returns the next available row index which leads to the following failure:
         // Referential integrity constraint violation: "FK_STATUS_MESSAGE: PUBLIC.STATUS FOREIGN KEY(MESSAGEID) REFERENCES PUBLIC.MESSAGE(ID) (5)"
         // when the second SQL statement, which has a foreign key to the primer one, is executed !
 
+        // FIXME: still not the correct ID is returned
         KeyHolder keyHolder = new GeneratedKeyHolder();
         final String sqlInsertUpdate = "INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') ON DUPLICATE KEY UPDATE message=VALUES(RAWTOHEX('Updated Message 1')), lastStatusChange=VALUES('2015-09-21 10:40:00')";
         int numMsg = jdbcTemplate.update(
@@ -141,11 +151,11 @@ public class H2MySqlInsertOnUpdateTest {
         System.out.println("Affected rows: " + numMsg);
 
         // Debug code for checking the current state via the web-exposed H2 db
-        try {
-          Thread.sleep(60000L);
-        } catch (InterruptedException e) {
-          e.printStackTrace();
-        }
+//        try {
+//          Thread.sleep(60000L);
+//        } catch (InterruptedException e) {
+//          e.printStackTrace();
+//        }
 
         Long messageRefId = null;
         Map<String, Object> keys = keyHolder.getKeys();
@@ -165,8 +175,10 @@ public class H2MySqlInsertOnUpdateTest {
     });
 
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
-    assertThat("Unexpected number of stored messages after test found", numMessages, is(equalTo(5)));
+    // 4 existing, 1 added before the transaction, 1 added in the transaction, but not the insert-updated one!
+    assertThat("Unexpected number of stored messages after test found", numMessages, is(equalTo(6)));
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM status WHERE messageId = 1", Integer.class);
+    // message 1 had 2 initial states and 1 was added within the transaction
     assertThat("Unexpected number of states for first message found after tests", numMessages, is(equalTo(3)));
   }
 
