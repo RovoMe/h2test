@@ -7,6 +7,7 @@ import static org.junit.Assert.assertThat;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Properties;
 import org.h2.Driver;
@@ -71,14 +72,13 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
       insetUpdate = dbConnection.prepareStatement("INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') ON DUPLICATE KEY UPDATE message=VALUES(RAWTOHEX('Updated Message 1')), lastStatusChange=VALUES('2015-09-21 10:40:00')");
       int retValue = insetUpdate.executeUpdate();
 
-      Statement s = dbConnection.createStatement();
-      ResultSet rs = s.executeQuery("SELECT LAST_INSERT_ID() AS n");
-      rs.next();
-      int affectedId = rs.getInt(1);
+      int affectedId;
       if (1 == retValue) {
+        affectedId = executeIdStatement("SELECT LAST_INSERT_ID() AS n");
         System.out.println("Inserted new entry with ID: " + affectedId);
         // fail("An update should have been triggered instead of an insert!");
       } else {
+        affectedId = executeIdStatement("SELECT id FROM message WHERE messageId = 'abcd1234'");
         System.out.println("Updated entry with ID: " + affectedId);
       }
 
@@ -118,5 +118,16 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
     try (PreparedStatement stmt = dbConnection.prepareStatement(statement)) {
       stmt.execute();
     }
+  }
+
+  private int executeIdStatement(String sql) throws SQLException {
+    int retVal = 0;
+    Statement s = dbConnection.createStatement();
+    ResultSet rs = s.executeQuery(sql);
+    rs.next();
+    retVal = rs.getInt(1);
+    rs.close();
+
+    return retVal;
   }
 }
