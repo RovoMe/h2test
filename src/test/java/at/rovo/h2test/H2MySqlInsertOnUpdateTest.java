@@ -161,7 +161,7 @@ public class H2MySqlInsertOnUpdateTest {
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
     assertThat("Unexpected number of stored messages after test found", numMessages, is(equalTo(4)));
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM status WHERE messageId = 1", Integer.class);
-    assertThat("Unexpected number of states for first message found after tests", numMessages, is(equalTo(4)));
+    assertThat("Unexpected number of states for first message found after tests", numMessages, is(equalTo(3)));
   }
 
   @Configuration
