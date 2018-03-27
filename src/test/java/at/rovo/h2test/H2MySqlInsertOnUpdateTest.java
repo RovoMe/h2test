@@ -6,15 +6,18 @@ import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+import java.sql.Connection;
 import java.util.Map;
+import javax.annotation.Resource;
+import javax.sql.DataSource;
 import org.h2.jdbc.JdbcSQLException;
+import org.h2.tools.Server;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -26,13 +29,6 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
-
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-
-import javax.annotation.Resource;
-import javax.sql.DataSource;
 
 @SuppressWarnings({"SqlNoDataSourceInspection", "SqlDialectInspection"})
 @RunWith(SpringJUnit4ClassRunner.class)
@@ -85,6 +81,12 @@ public class H2MySqlInsertOnUpdateTest {
     int numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
     assertThat("Unexpected number of messages found after initialization", numMessages, is(equalTo(4)));
 
+    final String insert = "INSERT INTO message (messageId, message, lastStatusChange) VALUES ('newMessage', RAWTOHEX('New message'), '2018-03-27')";
+    jdbcTemplate.update(insert);
+
+    numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
+    assertThat("Unexpected number of messages found after initialization", numMessages, is(equalTo(5)));
+
     TransactionTemplate txTemp = new TransactionTemplate(tm);
     txTemp.setIsolationLevel(TransactionDefinition.ISOLATION_READ_UNCOMMITTED);
     txTemp.execute(new TransactionCallbackWithoutResult() {
@@ -104,7 +106,7 @@ public class H2MySqlInsertOnUpdateTest {
           //    SQL statement: INSERT INTO message (messageId, message, lastStatusChange)
           //                   VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') [23505-197]
           testNumMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
-          assertThat("Unexpected number of messages after first insert test found", testNumMessages, is(equalTo(4)));
+          assertThat("Unexpected number of messages after first insert test found", testNumMessages, is(equalTo(5)));
         }
 
 
@@ -120,8 +122,9 @@ public class H2MySqlInsertOnUpdateTest {
           //    SQL statement: INSERT INTO message (id, messageId, message, lastStatusChange)
           //                   VALUES (1, 'abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') [23505-197]
           testNumMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
-          assertThat("Unexpected number of messages after insert with ID test found", testNumMessages, is(equalTo(4)));
+          assertThat("Unexpected number of messages after insert with ID test found", testNumMessages, is(equalTo(5)));
         }
+
 
 
         // This simple transaction should update the first entry and return the index of the updated row.
@@ -131,15 +134,18 @@ public class H2MySqlInsertOnUpdateTest {
 
         KeyHolder keyHolder = new GeneratedKeyHolder();
         final String sqlInsertUpdate = "INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') ON DUPLICATE KEY UPDATE message=VALUES(RAWTOHEX('Updated Message 1')), lastStatusChange=VALUES('2015-09-21 10:40:00')";
-        int numMsg =
-            jdbcTemplate.update(new PreparedStatementCreator() {
-              @Override
-              public PreparedStatement createPreparedStatement(Connection con) throws SQLException {
-                return con.prepareStatement(sqlInsertUpdate, new String[] { "id" });
-              }
-            }, keyHolder);
+        int numMsg = jdbcTemplate.update(
+            (Connection con) -> con.prepareStatement(sqlInsertUpdate, new String[] { "id" }),
+            keyHolder);
 
         System.out.println("Affected rows: " + numMsg);
+
+        // Debug code for checking the current state via the web-exposed H2 db
+        try {
+          Thread.sleep(60000L);
+        } catch (InterruptedException e) {
+          e.printStackTrace();
+        }
 
         Long messageRefId = null;
         Map<String, Object> keys = keyHolder.getKeys();
@@ -159,13 +165,21 @@ public class H2MySqlInsertOnUpdateTest {
     });
 
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM message", Integer.class);
-    assertThat("Unexpected number of stored messages after test found", numMessages, is(equalTo(4)));
+    assertThat("Unexpected number of stored messages after test found", numMessages, is(equalTo(5)));
     numMessages = jdbcTemplate.queryForObject("SELECT count(*) FROM status WHERE messageId = 1", Integer.class);
-    assertThat("Unexpected number of states for first message found after tests", numMessages, is(equalTo(4)));
+    assertThat("Unexpected number of states for first message found after tests", numMessages, is(equalTo(3)));
   }
 
   @Configuration
   public static class ContextConfig {
+
+    @Bean
+    public Server createTcpServer() throws Exception {
+      // Allows to lookup the current state of the H2 content via: http://localhost:8082
+      // Select Generic MySQL as preconfiguration and use org.h2.Driver.class as driver and
+      // jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=MYSQL; as JDBC URL
+      return Server.createWebServer("-web","-webAllowOthers","-webPort","8082").start();
+    }
 
     @Bean
     public DataSource dataSource() throws Exception {
