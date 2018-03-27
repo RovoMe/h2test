@@ -66,6 +66,7 @@ public class PlainJdbcH2MySqlInsertOnUpdateTest {
     PreparedStatement insert = null;
     try {
       dbConnection.setAutoCommit(false);
+      dbConnection.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
 
       insetUpdate = dbConnection.prepareStatement("INSERT INTO message (messageId, message, lastStatusChange) VALUES ('abcd1234', RAWTOHEX('Updated Message 1'), '2015-09-21 10:40:00') ON DUPLICATE KEY UPDATE message=VALUES(RAWTOHEX('Updated Message 1')), lastStatusChange=VALUES('2015-09-21 10:40:00')");
       int retValue = insetUpdate.executeUpdate();
